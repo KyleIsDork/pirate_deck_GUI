@@ -1,0 +1,99 @@
+1 Academy Rector
+1 Allosaurus Shepherd
+1 Altar of Dementia
+1 Anguished Unmaking
+1 Arid Mesa
+1 Ashnod's Altar
+1 Assassin's Trophy
+1 Aura Shards
+1 Avacyn's Pilgrim
+1 Beast Within
+1 Bennie Bracks, Zoologist
+1 Birds of Paradise
+1 Bloodstained Mire
+1 Bloom Tender
+1 Bountiful Promenade
+1 Brushland
+1 Buried Ruin
+1 Carrion Feeder
+1 Cathars' Crusade
+1 Chord of Calling
+1 City of Brass
+1 Command Tower
+1 Corpse Knight
+1 Cryptic Trilobite
+1 Demonic Tutor
+1 Devoted Druid
+1 Diabolic Intent
+1 Dryad Arbor
+1 Earthcraft
+1 Eldritch Evolution
+1 Elves of Deep Shadow
+1 Enlightened Tutor
+1 Esper Sentinel
+1 Eternal Witness
+1 Finale of Devastation
+1 Flooded Strand
+2 Forest
+1 Generous Patron
+1 Geralf's Messenger
+1 Ghave, Guru of Spores
+1 Godless Shrine
+1 Good-Fortune Unicorn
+1 Grand Abolisher
+1 Grave Pact
+1 Green Sun's Zenith
+1 Illusionist's Bracers
+1 Ivy Lane Denizen
+1 Jeweled Lotus
+1 Karmic Guide
+1 Kitchen Finks
+1 Knight of Autumn
+1 Llanowar Wastes
+1 Marsh Flats
+1 Mikaeus, the Unhallowed
+1 Misty Rainforest
+1 Natural Order
+1 Nature's Lore
+1 Necropotence
+1 Nurturing Peatland
+1 Overgrown Tomb
+1 Pattern of Rebirth
+1 Phyrexian Altar
+1 Phyrexian Tower
+2 Plains
+1 Polluted Delta
+1 Prismatic Vista
+1 Protean Hulk
+1 Reveillark
+1 Saffi Eriksdotter
+1 Sakura-Tribe Elder
+1 Scurry Oak
+1 Silent Clearing
+1 Skullclamp
+1 Sol Ring
+1 Strangleroot Geist
+1 Survival of the Fittest
+2 Swamp
+1 Swift Reconfiguration
+1 Sylvan Library
+1 Tayam, Luminous Enigma
+1 Temple Garden
+1 The Meathook Massacre
+1 Twilight Mire
+1 Undergrowth Stadium
+1 Urborg, Tomb of Yawgmoth
+1 Utopia Sprawl
+1 Vampiric Tutor
+1 Verdant Catacombs
+1 Viscera Seer
+1 Walking Ballista
+1 Wild Growth
+1 Windswept Heath
+1 Wooded Bastion
+1 Wooded Foothills
+1 Woodfall Primus
+1 Yawgmoth, Thran Physician
+1 Young Wolf
+
+
