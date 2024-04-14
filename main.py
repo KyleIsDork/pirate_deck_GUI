@@ -7,8 +7,9 @@ from bs4 import BeautifulSoup
 from urllib.parse import quote
 import webbrowser
 import sqlite3
+import sys
 
-DEBUG = True
+DEBUG = False
 
 UNKNOWN_ERR = 'UNKNOWN, TRY MANUAL SEARCH'
 
@@ -90,9 +91,16 @@ def lookup_proxy(name, use_mage, use_usea):
 def print_output(output):
     print(tabulate(output, headers="keys", tablefmt="rounded_grid"))
 
+def get_platform_firefox_path():
+    if sys.platform == 'linux':
+        return '/usr/bin/firefox'
+    if sys.platform == 'darwin':
+        return '/Applications/Firefox.app/Contents/MacOS/firefox'
+    if sys.platform == 'win32':
+        return 'C:\Program Files\Mozilla Firefox\firefox.exe'
+
 def open_urls_in_firefox(output):
-    # Define the path to Firefox (adjust according to your installation)
-    firefox_path = '/Applications/Firefox.app/Contents/MacOS/firefox'
+    firefox_path = get_platform_firefox_path()
     webbrowser.register('firefox', None, webbrowser.BackgroundBrowser(firefox_path))
 
     urls = []
