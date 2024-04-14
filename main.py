@@ -8,7 +8,6 @@ from urllib.parse import quote
 import webbrowser
 import sqlite3
 
-global DEBUG
 DEBUG = True
 
 UNKNOWN_ERR = 'UNKNOWN, TRY MANUAL SEARCH'
@@ -16,8 +15,6 @@ UNKNOWN_ERR = 'UNKNOWN, TRY MANUAL SEARCH'
 def debug_print(line):
     if DEBUG:
         print(line)
-
-# GET https://www.acardgameshop.com/?s=Flooded Strand&post_type=product
 
 def process_line(line):
     match = re.match(r'^(\d+)\s+(.*)', line)
@@ -125,10 +122,41 @@ def get_card_obj_from_db(cursor, card_name):
     ret['website'] = row[2]
     return ret
 
+def check_card(card_name, cursor, conn, use_lgs, use_tcg, use_cking, use_mage, use_usea, output):
+    if card_exists_in_db(cursor, card_name):
+        # card exists, we previously looked it up
+        obj = get_card_obj_from_db(cursor, card_name)
+        add_to_output(obj, output)
+        return
+
+    card_obj = {}
+    card_obj['name'] = card_name
+    card_obj['quantity'] = 1
+    if is_basic_land(card_obj['name']):
+        card_obj['website'] = lookup_single(card_obj['name'], use_lgs, use_tcg, use_cking)
+    else:
+        temp = lookup_proxy(card_obj['name'], use_mage, use_usea)
+        if temp == '':
+            # didnt find exact match
+            temp = lookup_single(card_obj['name'], use_lgs, use_tcg, use_cking)
+            if temp == '':
+                # didn't find single
+                card_obj['website'] = UNKNOWN_ERR
+            else:
+                # found single
+                card_obj['website'] = temp
+        else:
+            # found proxy
+            card_obj['website'] = temp
+    add_to_database(card_obj, cursor, conn)
+    add_to_output(card_obj, output)
+
 def main():
     parser = argparse.ArgumentParser(
         description='An easy way to price and build a deck between buying singles and BLs/proxies from USEA/BLMage'
     )
+
+    # options are entirely hardcoded for now
 
     # proxy_group = parser.add_mutually_exclusive_group()
     # proxy_group.required = True
@@ -152,6 +180,7 @@ def main():
     )
     args = parser.parse_args()
 
+    # these are also hardcoded for now
     use_mage = True # args.blmage
     use_usea = False # args.usea
 
@@ -185,33 +214,7 @@ def main():
     deck = parse_deck(deck_file)
     print(f'Please wait while cards are looked up...This can take 1-2 minutes')
     for card_name in deck:
-        if card_exists_in_db(cursor, card_name):
-            # card exists, we previously looked it up
-            obj = get_card_obj_from_db(cursor, card_name)
-            add_to_output(obj, output)
-            continue
-
-        card_obj = {}
-        card_obj['name'] = card_name
-        card_obj['quantity'] = 1
-        if is_basic_land(card_obj['name']):
-            card_obj['website'] = lookup_single(card_obj['name'], use_lgs, use_tcg, use_cking)
-        else:
-            temp = lookup_proxy(card_obj['name'], use_mage, use_usea)
-            if temp == '':
-                # didnt find exact match
-                temp = lookup_single(card_obj['name'], use_lgs, use_tcg, use_cking)
-                if temp == '':
-                    # didn't find single
-                    card_obj['website'] = UNKNOWN_ERR
-                else:
-                    # found single
-                    card_obj['website'] = temp
-            else:
-                # found proxy
-                card_obj['website'] = temp
-        add_to_database(card_obj, cursor, conn)
-        add_to_output(card_obj, output)
+        check_card(card_name, cursor, conn, use_lgs, use_tcg, use_cking, use_mage, use_usea, output)
 
     print_output(output)
 
