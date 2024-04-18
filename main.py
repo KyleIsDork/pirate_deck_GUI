@@ -11,8 +11,6 @@ import datetime
 
 DEBUG = False
 
-UNKNOWN_ERR = 'UNKNOWN, TRY MANUAL SEARCH'
-
 def debug_print(line):
     if DEBUG:
         print(line)
@@ -48,9 +46,21 @@ def add_to_output(card_obj, output):
     for each in output:
         if each['name'] == card_obj['name']:
             each['quantity'] += 1
-            return
+            return 0.0
     website = ''
     price = 0.0
+    mage_price = float(card_obj['blmage_price'])
+    tcg_price = float(card_obj['tcg_price'])
+
+    if tcg_price > 0.0 and mage_price > 0.0:
+        # both have valid prices
+        if mage_price < tcg_price:
+            website = card_obj['blmage_url']
+            price = mage_price
+        else:
+            website = card_obj['tcg_url']
+            price = tcg_price
+
     if card_obj['blmage_price'] == 0:
         website = card_obj['tcg_url']
         price = card_obj['tcg_price']
@@ -58,14 +68,35 @@ def add_to_output(card_obj, output):
         website = card_obj['blmage_url']
         price = card_obj['blmage_price']
 
-    if (price == 0):
+    ret = 0.0
+    price = float(price)
+    if (price == 0.0):
         price = 'UNK'
-    else :
-        price = float(price)
+    else:
+        # no need to worry about quantity, this is called for each card, including duplicates
+        ret = price
         price = f'${price:,.2f}'
 
     output.append({'name': card_obj['name'], 'quantity': 1,
                    'price_each': price, 'website': website, 'updated': card_obj['timestamp']})
+    return ret
+
+
+def lookup_avg_price(name):
+    name = name.replace(' ', '+')
+    url = f'https://api.scryfall.com/cards/named?fuzzy={name}'
+    r = requests.get(url)
+    if r.status_code != 200:
+        return -1.0
+    data = r.json()
+    if 'prices' not in data:
+        return -1.0
+    if 'usd' not in data['prices']:
+        return -1.0
+    pr = data['prices']['usd']
+    if pr is None:
+        return -1.0
+    return float(pr)
 
 def lookup_tcg(name):
     return f'https://www.tcgplayer.com/search/magic/product?productLineName=magic&q={quote(name)}&view=grid&direct=true'
@@ -85,12 +116,13 @@ def lookup_mage(name):
             price = price[1].get_text().replace('$', '')
         else:
             price = price[0].get_text().replace('$', '')
-        if str(title.get_text()).startswith(name):
+        if str(title.get_text().lower()).startswith(name.lower()):
             return [url, price]
     return ['', 0.0]
 
-def print_output(output):
+def print_output(output, price_total):
     print(tabulate(output, headers="keys", tablefmt="rounded_grid"))
+    print(f'Approx deck total price (minus shipping): ${price_total:,.2f}')
 
 def get_platform_firefox_path():
     if sys.platform == 'linux':
@@ -150,44 +182,34 @@ def is_card_lookup_expired(cursor, card_name):
             return False
     return True
 
-def check_card(card_name, cursor, conn, output):
-    if card_exists_in_db(cursor, card_name):
-        # card exists, we previously looked it up
-        if not is_card_lookup_expired(cursor, card_name):
-            obj = get_card_obj_from_db(cursor, card_name)
-            add_to_output(obj, output)
-            return
-    # card does not exist in db, or lookup is expired
-
+def make_card_obj(card_name):
     card_obj = {}
     card_obj['name'] = card_name
     card_obj['quantity'] = 1
     card_obj['timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     card_obj['blmage_url'] = ''
     card_obj['blmage_price'] = 0
-    card_obj['tcg_url'] = ''
-    card_obj['tcg_price'] = 0 # todo: get price
-    if is_basic_land(card_obj['name']):
-        card_obj['tcg_url'] = lookup_tcg(card_obj['name'])
-        card_obj['tcg_price'] = 0 # todo: get price
-    else:
-        temp = lookup_mage(card_obj['name'])
-        if temp[0] == '':
-            # didnt find exact match
-            temp = lookup_tcg(card_obj['name'])
-            if temp == '':
-                # didn't find single
-                raise Exception(f'no card found for {card_name}')
-            else:
-                # found single
-                card_obj['tcg_url'] = temp
-                card_obj['tcg_price'] = 0
-        else:
-            # found proxy
-            card_obj['blmage_url'] = temp[0]
-            card_obj['blmage_price'] = temp[1]
+    card_obj['tcg_url'] = lookup_tcg(card_obj['name'])
+    card_obj['tcg_price'] = lookup_avg_price(card_obj['name'])
+    if not is_basic_land(card_obj['name']):
+        # only check mage if not a basic land
+        prox = lookup_mage(card_obj['name'])
+        card_obj['blmage_url'] = prox[0]
+        card_obj['blmage_price'] = prox[1]
+    return card_obj
+
+def check_card(card_name, cursor, conn, output):
+    if card_exists_in_db(cursor, card_name):
+        # card exists, we previously looked it up
+        if not is_card_lookup_expired(cursor, card_name):
+            # card exists, and lookup is not expired
+            obj = get_card_obj_from_db(cursor, card_name)
+            return add_to_output(obj, output)
+
+    # card does not exist in db, or lookup is expired
+    card_obj = make_card_obj(card_name)
     add_to_database(card_obj, cursor, conn)
-    add_to_output(card_obj, output)
+    return add_to_output(card_obj, output)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -226,12 +248,14 @@ def main():
     ''')
     conn.commit()
 
+    price_total = 0.0
+
     deck = parse_deck(deck_file)
     print(f'Please wait while cards are looked up...This can take 1-2 minutes')
     for card_name in deck:
-        check_card(card_name, cursor, conn, output)
+        price_total += check_card(card_name, cursor, conn, output)
 
-    print_output(output)
+    print_output(output, price_total)
 
     if firefox:
         open_urls_in_firefox(output)
