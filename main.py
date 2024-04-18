@@ -2,12 +2,12 @@ import requests
 import argparse
 import re
 from tabulate import tabulate
-import time
 from bs4 import BeautifulSoup
 from urllib.parse import quote
 import webbrowser
 import sqlite3
 import sys
+import datetime
 
 DEBUG = False
 
@@ -49,44 +49,45 @@ def add_to_output(card_obj, output):
         if each['name'] == card_obj['name']:
             each['quantity'] += 1
             return
-    output.append({'name': card_obj['name'], 'quantity': 1, 'website': card_obj['website']})
+    website = ''
+    price = 0.0
+    if card_obj['blmage_price'] == 0:
+        website = card_obj['tcg_url']
+        price = card_obj['tcg_price']
+    else:
+        website = card_obj['blmage_url']
+        price = card_obj['blmage_price']
+
+    if (price == 0):
+        price = 'UNK'
+    else :
+        price = float(price)
+        price = f'${price:,.2f}'
+
+    output.append({'name': card_obj['name'], 'quantity': 1,
+                   'price_each': price, 'website': website, 'updated': card_obj['timestamp']})
 
 def lookup_tcg(name):
     return f'https://www.tcgplayer.com/search/magic/product?productLineName=magic&q={quote(name)}&view=grid&direct=true'
-
-def lookup_cking(name):
-    return f'https://www.cardkingdom.com/catalog/search?search=header&filter[name]={quote(name)}'
 
 def lookup_mage(name):
     url = f'https://bootlegmage.com/?s={quote(name)}'
     r = requests.get(url)
     if r.status_code != 200:
-        return ''
+        return ['', 0.0]
     soup = BeautifulSoup(r.text, 'html.parser')
-    products = soup.find_all(class_='woocommerce-loop-product__title')
-    for title in products:
+    products = soup.find_all(class_='woocommerce-loop-product__link')
+    for each in products:
+        title = each.find(class_='woocommerce-loop-product__title')
+        price = each.find_all(class_='woocommerce-Price-amount')
+        if (len(price) == 2):
+            # on sale
+            price = price[1].get_text().replace('$', '')
+        else:
+            price = price[0].get_text().replace('$', '')
         if str(title.get_text()).startswith(name):
-            return url
-    return ''
-
-def lookup_usea(name):
-    return 'TODO usea'
-
-def lookup_single(name, use_lgs, use_tcg, use_cking):
-    if use_lgs:
-        return 'LGS'
-    if use_tcg:
-        return lookup_tcg(name)
-    if use_cking:
-        return lookup_cking(name)
-    return 'ERROR'
-
-def lookup_proxy(name, use_mage, use_usea):
-    if use_mage:
-        return lookup_mage(name)
-    if use_usea:
-        return lookup_usea(name)
-    return ''
+            return [url, price]
+    return ['', 0.0]
 
 def print_output(output):
     print(tabulate(output, headers="keys", tablefmt="rounded_grid"))
@@ -117,9 +118,11 @@ def card_exists_in_db(cursor, name):
     return row is not None
 
 def add_to_database(card_obj, cursor, conn):
-    if card_obj['website'] == UNKNOWN_ERR:
-        return
-    cursor.execute('INSERT INTO cards (name, website) VALUES (?, ?)', (card_obj['name'], card_obj['website']))
+    cursor.execute('INSERT INTO cards (name, tcg_url, tcg_price, blmage_url, blmage_price, timestamp) ' +
+                'VALUES (?, ?, ?, ?, ?, ?)',
+                (card_obj['name'], card_obj['tcg_url'], card_obj['tcg_price'],
+                 card_obj['blmage_url'], card_obj['blmage_price'],
+                 datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
 
 def get_card_obj_from_db(cursor, card_name):
@@ -127,35 +130,62 @@ def get_card_obj_from_db(cursor, card_name):
     ret['name'] = card_name
     cursor.execute('SELECT * FROM cards WHERE name = ?', (card_name,))
     row = cursor.fetchone()
-    ret['website'] = row[2]
+    if row is not None:
+        ret['blmage_url'] = row[2]
+        ret['blmage_price'] = row[3]
+        ret['tcg_url'] = row[4]
+        ret['tcg_price'] = row[5]
+        ret['timestamp'] = row[6]
     return ret
 
-def check_card(card_name, cursor, conn, use_lgs, use_tcg, use_cking, use_mage, use_usea, output):
+def is_card_lookup_expired(cursor, card_name):
+    cursor.execute('SELECT * FROM cards WHERE name = ?', (card_name,))
+    row = cursor.fetchone()
+    if row is not None:
+        t = row[6]
+        current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        time_difference = datetime.datetime.strptime(current_time, '%Y-%m-%d %H:%M:%S') - \
+            datetime.datetime.strptime(t, '%Y-%m-%d %H:%M:%S')
+        if time_difference.days < 5:
+            return False
+    return True
+
+def check_card(card_name, cursor, conn, output):
     if card_exists_in_db(cursor, card_name):
         # card exists, we previously looked it up
-        obj = get_card_obj_from_db(cursor, card_name)
-        add_to_output(obj, output)
-        return
+        if not is_card_lookup_expired(cursor, card_name):
+            obj = get_card_obj_from_db(cursor, card_name)
+            add_to_output(obj, output)
+            return
+    # card does not exist in db, or lookup is expired
 
     card_obj = {}
     card_obj['name'] = card_name
     card_obj['quantity'] = 1
+    card_obj['timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    card_obj['blmage_url'] = ''
+    card_obj['blmage_price'] = 0
+    card_obj['tcg_url'] = ''
+    card_obj['tcg_price'] = 0 # todo: get price
     if is_basic_land(card_obj['name']):
-        card_obj['website'] = lookup_single(card_obj['name'], use_lgs, use_tcg, use_cking)
+        card_obj['tcg_url'] = lookup_tcg(card_obj['name'])
+        card_obj['tcg_price'] = 0 # todo: get price
     else:
-        temp = lookup_proxy(card_obj['name'], use_mage, use_usea)
-        if temp == '':
+        temp = lookup_mage(card_obj['name'])
+        if temp[0] == '':
             # didnt find exact match
-            temp = lookup_single(card_obj['name'], use_lgs, use_tcg, use_cking)
+            temp = lookup_tcg(card_obj['name'])
             if temp == '':
                 # didn't find single
-                card_obj['website'] = UNKNOWN_ERR
+                raise Exception(f'no card found for {card_name}')
             else:
                 # found single
-                card_obj['website'] = temp
+                card_obj['tcg_url'] = temp
+                card_obj['tcg_price'] = 0
         else:
             # found proxy
-            card_obj['website'] = temp
+            card_obj['blmage_url'] = temp[0]
+            card_obj['blmage_price'] = temp[1]
     add_to_database(card_obj, cursor, conn)
     add_to_output(card_obj, output)
 
@@ -163,20 +193,6 @@ def main():
     parser = argparse.ArgumentParser(
         description='An easy way to price and build a deck between buying singles and BLs/proxies from USEA/BLMage'
     )
-
-    # options are entirely hardcoded for now
-
-    # proxy_group = parser.add_mutually_exclusive_group()
-    # proxy_group.required = True
-    # proxy_group.add_argument('--usea', '-u', action='store_true', help='Use USEA')
-    # proxy_group.add_argument('--blmage', '-b', action='store_true', help='Use BLMage')
-
-    # singles_group = parser.add_mutually_exclusive_group()
-    # singles_group.required = True
-    # singles_group.add_argument('--lgs', '-l', action='store_true', help='Use your friendly LGS for singles (this will just print out a list)')
-    # singles_group.add_argument('--tcg', '-t', action='store_true', help='Use tcgplayer.com for singles (this will print links)')
-    # singles_group.add_argument('--cking', '-k', action='store_true', help='Use cardkingdom.com for singles (this will print links)')
-
     parser.add_argument('--open', '-o', action='store_true', help='Open the resulting URLs in Firefox (This may open ~100 tabs)')
 
     parser.add_argument('--input', '-i', type=str, required=True, help='Input file:\n'+
@@ -188,24 +204,11 @@ def main():
     )
     args = parser.parse_args()
 
-    # these are also hardcoded for now
-    use_mage = True # args.blmage
-    use_usea = False # args.usea
-
-    use_lgs = False # args.lgs
-    use_tcg = True # args.tcg
-    use_cking = False # args.cking
-
     deck_file = args.input
-
     firefox = args.open
 
+    debug_print(f'deck: {deck_file}, firefox: {firefox}')
 
-    debug_print(f'mage: {use_mage}, usea: {use_usea}, deck {deck_file}')
-    debug_print(f'lgs: {use_lgs}, tcgplayer: {use_tcg}, cardkingdom: {use_cking}')
-
-    # output list of [ {'name': 'Plains', 'quantity': 3, 'website': 'google.com'}, ... ]
-    # for easy printing
     output = []
 
     conn = sqlite3.connect('cards.db')
@@ -214,7 +217,11 @@ def main():
     CREATE TABLE IF NOT EXISTS cards (
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL,
-        website TEXT NOT NULL
+        blmage_url TEXT NOT NULL,
+        blmage_price REAL DEFAULT 0,
+        tcg_url TEXT NOT NULL,
+        tcg_price REAL DEFAULT 0,
+        timestamp TEXT
     )
     ''')
     conn.commit()
@@ -222,7 +229,7 @@ def main():
     deck = parse_deck(deck_file)
     print(f'Please wait while cards are looked up...This can take 1-2 minutes')
     for card_name in deck:
-        check_card(card_name, cursor, conn, use_lgs, use_tcg, use_cking, use_mage, use_usea, output)
+        check_card(card_name, cursor, conn, output)
 
     print_output(output)
 
