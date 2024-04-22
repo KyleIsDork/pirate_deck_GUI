@@ -8,6 +8,8 @@ import webbrowser
 import sqlite3
 import sys
 import datetime
+import time
+import re
 
 DEBUG = False
 
@@ -101,7 +103,13 @@ def lookup_avg_price(name):
 def lookup_tcg(name):
     return f'https://www.tcgplayer.com/search/magic/product?productLineName=magic&q={quote(name)}&view=grid&direct=true'
 
+def mage_filter(name):
+    name = name.replace(',', ' ')
+    name = name.replace('&', ' ')
+    return name
+
 def lookup_mage(name):
+    name = mage_filter(name)
     url = f'https://bootlegmage.com/?s={quote(name)}'
     r = requests.get(url)
     if r.status_code != 200:
@@ -132,17 +140,24 @@ def get_platform_firefox_path():
     if sys.platform == 'win32':
         return 'C:\Program Files\Mozilla Firefox\firefox.exe'
 
-def open_urls_in_firefox(output):
+def open_urls_in_firefox(output, mass_import):
     firefox_path = get_platform_firefox_path()
     webbrowser.register('firefox', None, webbrowser.BackgroundBrowser(firefox_path))
 
     urls = []
 
-    for obj in output:
-        urls.append(obj['website'])
+    for card in output:
+        if mass_import:
+            if card['website'].startswith('https://bootlegmage.com'):
+                urls.append(card['website'])
+            else:
+                continue
+        else:
+            urls.append(card['website'])
 
     for url in urls:
         webbrowser.get('firefox').open_new_tab(url)
+        time.sleep(1)
 
 def card_exists_in_db(cursor, name):
     cursor.execute('SELECT * FROM cards WHERE name = ?', (name,))
@@ -211,11 +226,30 @@ def check_card(card_name, cursor, conn, output):
     add_to_database(card_obj, cursor, conn)
     return add_to_output(card_obj, output)
 
+def fix_card_name(name):
+    name = re.sub(r' //.*', '', name)
+    return name
+
+def make_mass_import(output):
+    out = ''
+    for card in output:
+        if card['website'].startswith('https://bootlegmage.com'):
+            continue
+        fixed_name = fix_card_name(card['name'])
+        out += f'{card["quantity"]} {fixed_name}\n'
+    print()
+    print()
+    print('Paste this into the TCGPlayer mass import tool: https://store.tcgplayer.com/massentry')
+    print(out)
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description='An easy way to price and build a deck between buying singles and BLs/proxies from USEA/BLMage'
+        description='An easy way to price and build a deck between buying singles and BLs/proxies from BLMage'
     )
     parser.add_argument('--open', '-o', action='store_true', help='Open the resulting URLs in Firefox (This may open ~100 tabs)')
+
+    parser.add_argument('--mass-import', '-m', action='store_true', help='Generate a mass import file for tcgplayer')
 
     parser.add_argument('--input', '-i', type=str, required=True, help='Input file:\n'+
                         '\t[exported as "Text" and "1 Card Name" and "No Headers" from Archidekt]\n'+
@@ -228,6 +262,7 @@ def main():
 
     deck_file = args.input
     firefox = args.open
+    mass_import = args.mass_import
 
     debug_print(f'deck: {deck_file}, firefox: {firefox}')
 
@@ -257,8 +292,13 @@ def main():
 
     print_output(output, price_total)
 
+    if mass_import:
+        make_mass_import(output)
+
     if firefox:
-        open_urls_in_firefox(output)
+        # if firefox and mass import, only open mage links
+        # else open all
+        open_urls_in_firefox(output, mass_import)
 
     conn.close()
 
