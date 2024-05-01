@@ -126,17 +126,8 @@ def open_urls_in_firefox(output, mass_import):
     firefox_path = get_platform_firefox_path()
     webbrowser.register('firefox', None, webbrowser.BackgroundBrowser(firefox_path))
 
-    urls = []
-
-    for card in output:
-        if mass_import:
-            if card['website'].startswith('https://bootlegmage.com'):
-                urls.append(card['website'])
-            else:
-                continue
-        else:
-            urls.append(card['website'])
-
+    urls = [card['website'] for card in output if not mass_import or (mass_import and card['website'].startswith('https://bootlegmage.com'))]
+    
     for url in urls:
         webbrowser.get('firefox').open_new_tab(url)
         time.sleep(1)
@@ -212,20 +203,19 @@ def fix_card_name(name):
     name = re.sub(r' //.*', '', name)
     return name
     
-def make_mass_import(output):
-    out = ''
+def make_mass_import(output, output_text):
+    out = 'Paste this into the TCGPlayer mass import tool: https://store.tcgplayer.com/massentry\n\n'
     for card in output:
         if card['website'].startswith('https://bootlegmage.com'):
             continue
         fixed_name = fix_card_name(card['name'])
         out += f'{card["quantity"]} {fixed_name}\n'
-    print()
-    print()
-    print('Paste this into the TCGPlayer mass import tool: https://store.tcgplayer.com/massentry')
-    print(out)
+    
+    output_text.insert(tk.END, out + "\n")
 
 
-def main(deck_file, firefox=False, mass_import=False, output_text=None):
+
+def main(deck_file, firefox, mass_import, output_text):
     output = []
     conn = sqlite3.connect('cards.db')
     cursor = conn.cursor()
@@ -250,12 +240,11 @@ def main(deck_file, firefox=False, mass_import=False, output_text=None):
 
     print_output(output, price_total, output_text)
 
-    if mass_import:
-        pass  # Implement mass import functionality
-
     if firefox:
-        urls = [card['website'] for card in output if card['website']]
-        open_urls_in_firefox(urls)
+        open_urls_in_firefox(output, mass_import)
+
+    if mass_import:
+        make_mass_import(output, output_text)
 
     conn.close()
 
@@ -285,6 +274,8 @@ def run_gui():
             return
         output_text.delete('1.0', tk.END)  # Clear the text area before output
         main(deck_file_path.get(), open_firefox.get(), mass_import.get(), output_text)
+        if mass_import.get():  # Check if the mass import option is selected
+            make_mass_import(output, output_text)  # Call the modified make_mass_import function
         
     def confirm_run():
         response = messagebox.askyesno("Confirm Run", "This may take 1-2 minutes. If you have selected the \"Open URLs in Firefox\" option, it may open upwards of 100 tabs.\n\nDo not click the window, as it may become unresponsive. If the window is unresponsive, the program is working as intended.\n\nDo you want to continue?")
