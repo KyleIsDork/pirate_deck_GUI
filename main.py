@@ -17,7 +17,7 @@ from tabulate import tabulate
 ctk.set_appearance_mode("System")  # Adjust based on the system theme
 ctk.set_default_color_theme("blue")  # Choose a color theme
 
-DEBUG = False
+DEBUG = True
 
 def debug_print(line):
     if DEBUG:
@@ -48,24 +48,19 @@ def add_to_output(card_obj, output, output_text):
             each['quantity'] += 1
             output_text.insert(tk.END, f"Updated {card_obj['name']} in output with new quantity: {each['quantity']}\n")
             return 0.0  # Assuming price doesn't need recalculation for duplicates
-
-    # Check both prices and determine the best price and corresponding website
     tcg_price = float(card_obj['tcg_price']) if card_obj['tcg_price'] else float('inf')
     mage_price = float(card_obj['blmage_price']) if card_obj['blmage_price'] else float('inf')
-
     if tcg_price < mage_price:
         price = tcg_price
         website = card_obj['tcg_url']
-    elif mage_price < float('inf'):  # This ensures mage_price is valid and lower or only valid price
+    elif mage_price < float('inf'):
         price = mage_price
         website = card_obj['blmage_url']
     else:
-        price = 'UNK'  # No valid prices
+        price = 'UNK'
         website = ''
 
     price_formatted = f'${price:,.2f}' if price != 'UNK' else 'UNK'
-
-    # Append card data with the chosen price and website
     output.append({'name': card_obj['name'], 'quantity': 1, 'price_each': price_formatted, 'website': website, 'updated': card_obj['timestamp']})
     output_text.insert(tk.END, f"Added {card_obj['name']} to output with price {price_formatted} at {website}\n")
     return price if price != 'UNK' else 0.0
@@ -86,21 +81,108 @@ def mage_filter(name):
     name = name.replace(',', ' ').replace('&', ' ')
     return name
 
-def lookup_mage(name):
+def lookup_mage(name, shop_url):
     name = mage_filter(name)
-    url = f'https://bootlegmage.com/?s={quote(name)}'
+    selected_shop = shop_url.get()
+    if selected_shop == "bootlegmage":
+        url = f'https://bootlegmage.com/?s={quote(name)}'
+    elif selected_shop == "acardgameshop":
+        url = f'https://www.acardgameshop.com/?s={quote(name)}&post_type=product'
+    elif selected_shop == "magiccardplus":
+        url = f'https://magic-cardplus.com/?s={quote(name)}&post_type=product'
+
     r = requests.get(url)
     if r.status_code != 200:
         return ['', 0.0]
+
     soup = BeautifulSoup(r.text, 'html.parser')
-    products = soup.find_all(class_='woocommerce-loop-product__link')
-    for each in products:
-        title = each.find(class_='woocommerce-loop-product__title')
-        price = each.find_all(class_='woocommerce-Price-amount')
-        price = price[-1].get_text().strip('$')
-        if title.get_text().lower().startswith(name.lower()):
-            return [url, float(price)]
+    if selected_shop == "bootlegmage":
+        return parse_bootlegmage(soup, name)
+    elif selected_shop == "acardgameshop":
+        return parse_acardgameshop(soup, name)
+    elif selected_shop == "magiccardplus":
+        return parse_magiccardplus(soup, name)
+
     return ['', 0.0]
+
+def parse_bootlegmage(soup, name):
+    products = soup.find_all(class_='woocommerce-loop-product__link')
+    for product in products:
+        title = product.find(class_='woocommerce-loop-product__title')
+        price = product.find(class_='woocommerce-Price-amount')
+        if title and price and name.lower() in title.get_text().lower():
+            return [product['href'], float(price.get_text().strip('$'))]
+        else:
+            print(f"No price found for {name} at {url}")  # Log or handle no price found
+    return ['', 0.0]
+
+
+def parse_acardgameshop(soup, name):
+    price_map = {
+        'metal cards': 10.00,
+        'normal cards': 2.20,
+        'hologram cards': 3.00,
+        'foil cards': 4.00,
+        'etched foil cards': 4.00
+    }
+
+    products = soup.find_all('li', class_='product')
+    min_price = float('inf')
+    product_url = None
+
+    # Debugging output
+    print(f"Searching for '{name}'...")
+
+def parse_acardgameshop(soup, name):
+    products = soup.find_all(class_='woocommerce-LoopProduct-link woocommerce-loop-product__link')
+    min_price = float('inf')
+    product_url = None
+
+    for product in products:
+        product_link = product.find('a', class_='woocommerce-LoopProduct-link woocommerce-loop-product__link')
+        if not product_link:
+            continue
+
+        # Extract the title from the correct element, which is usually deeper within the link element
+        product_title_element = product_link.find('div', class_='woocommerce-loop-product__title')
+        product_title = product_title_element.get_text(strip=True) if product_title_element else ""
+
+        categories = {a.text.strip().lower() for a in product.find_all('a', rel='tag')}
+
+        # Debugging output
+        print(f"Checking product '{product_title}' with categories {categories}")
+
+        if name.lower() in product_title.lower():
+            for category in categories:
+                if category in price_map:
+                    category_price = price_map[category]
+                    if category_price < min_price:
+                        min_price = category_price
+                        product_url = product_link.get('href')
+                        print(f"Found matching product '{product_title}' at {product_url} for ${category_price}")
+
+            if min_price < float('inf'):
+                return [product_url, min_price]
+            else:
+                print(f"No matching or cheaper product found for '{name}'")
+                return ['', 0.0]
+    return ['', 0.0]
+
+def parse_magiccardplus(soup, name):
+    products = soup.find_all(class_='woocommerce-LoopProduct-link woocommerce-loop-product__link')
+    for product in products:
+        title = product.find(class_='woocommerce-loop-product__title')
+        price = product.find(class_='woocommerce-Price-currencySymbol')
+        if title and price and name.lower() in title.get_text().lower():
+            return [product['href'], float(price.get_text().strip('$'))]
+        else:
+            print(f"No price found for {name} at {url}")  # Log or handle no price found
+    return ['', 0.0]
+
+
+def change_shop(new_shop):
+    global shop_url
+    shop_url.set(new_shop)
 
 def add_to_database(card_obj, cursor, conn):
     cursor.execute('''
@@ -113,7 +195,7 @@ def print_output(output, price_total, output_text):
     from tabulate import tabulate
     output_text.insert(tk.END, tabulate(output, headers="keys", tablefmt="grid") + "\n")
     output_text.insert(tk.END, f"Approx deck total price (minus shipping): ${price_total:,.2f}\n")
-    
+
 def get_platform_firefox_path():
     if sys.platform == 'linux':
         return '/usr/bin/firefox'
@@ -125,27 +207,16 @@ def get_platform_firefox_path():
 def open_urls_in_firefox(output, mass_import):
     firefox_path = get_platform_firefox_path()
     webbrowser.register('firefox', None, webbrowser.BackgroundBrowser(firefox_path))
-
-    urls = []
-
-    for card in output:
-        if mass_import:
-            if card['website'].startswith('https://bootlegmage.com'):
-                urls.append(card['website'])
-            else:
-                continue
-        else:
-            urls.append(card['website'])
-
+    urls = [card['website'] for card in output if not mass_import or (mass_import and card['website'].startswith('https://bootlegmage.com'))]
     for url in urls:
         webbrowser.get('firefox').open_new_tab(url)
         time.sleep(1)
-        
+
 def card_exists_in_db(cursor, name):
     cursor.execute('SELECT * FROM cards WHERE name = ?', (name,))
     row = cursor.fetchone()
     return row is not None
-    
+
 def add_to_database(card_obj, cursor, conn):
     cursor.execute('INSERT INTO cards (name, tcg_url, tcg_price, blmage_url, blmage_price, timestamp) ' +
                 'VALUES (?, ?, ?, ?, ?, ?)',
@@ -153,7 +224,7 @@ def add_to_database(card_obj, cursor, conn):
                  card_obj['blmage_url'], card_obj['blmage_price'],
                  datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
-    
+
 def get_card_obj_from_db(cursor, card_name):
     ret = {}
     ret['name'] = card_name
@@ -166,10 +237,10 @@ def get_card_obj_from_db(cursor, card_name):
         ret['tcg_price'] = row[5]
         ret['timestamp'] = row[6]
     return ret
-    
+
 def is_card_lookup_expired(cursor, card_name):
     cursor.execute('SELECT * FROM cards WHERE name = ?', (card_name,))
-    row = cursor.fetchone
+    row = cursor.fetchone()
     if row is not None:
         t = row[6]
         current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -178,8 +249,8 @@ def is_card_lookup_expired(cursor, card_name):
         if time_difference.days < 5:
             return False
     return True
-    
-def make_card_obj(card_name):
+
+def make_card_obj(card_name, shop_url):
     card_obj = {}
     card_obj['name'] = card_name
     card_obj['quantity'] = 1
@@ -189,43 +260,36 @@ def make_card_obj(card_name):
     card_obj['tcg_url'] = lookup_tcg(card_obj['name'])
     card_obj['tcg_price'] = lookup_avg_price(card_obj['name'])
     if not is_basic_land(card_obj['name']):
-        # only check mage if not a basic land
-        prox = lookup_mage(card_obj['name'])
+        prox = lookup_mage(card_obj['name'], shop_url)
         card_obj['blmage_url'] = prox[0]
         card_obj['blmage_price'] = prox[1]
     return card_obj
-    
-def check_card(card_name, cursor, conn, output):
+
+def check_card(card_name, cursor, conn, output, shop_url):
     if card_exists_in_db(cursor, card_name):
-        # card exists, we previously looked it up
         if not is_card_lookup_expired(cursor, card_name):
-            # card exists, and lookup is not expired
             obj = get_card_obj_from_db(cursor, card_name)
             return add_to_output(obj, output)
 
-    # card does not exist in db, or lookup is expired
-    card_obj = make_card_obj(card_name)
+    card_obj = make_card_obj(card_name, shop_url)
     add_to_database(card_obj, cursor, conn)
     return add_to_output(card_obj, output)
-    
+
 def fix_card_name(name):
     name = re.sub(r' //.*', '', name)
     return name
-    
-def make_mass_import(output):
-    out = ''
+
+def make_mass_import(output, output_text):
+    out = 'Paste this into the TCGPlayer mass import tool: https://store.tcgplayer.com/massentry\n\n'
     for card in output:
         if card['website'].startswith('https://bootlegmage.com'):
             continue
         fixed_name = fix_card_name(card['name'])
         out += f'{card["quantity"]} {fixed_name}\n'
-    print()
-    print()
-    print('Paste this into the TCGPlayer mass import tool: https://store.tcgplayer.com/massentry')
-    print(out)
 
+    output_text.insert(tk.END, out + "\n")
 
-def main(deck_file, firefox=False, mass_import=False, output_text=None):
+def main(deck_file, firefox, mass_import, output_text, shop_url):
     output = []
     conn = sqlite3.connect('cards.db')
     cursor = conn.cursor()
@@ -245,24 +309,35 @@ def main(deck_file, firefox=False, mass_import=False, output_text=None):
     price_total = 0.0
     deck = parse_deck(deck_file)
     for card_name in deck:
-        card_obj = make_card_obj(card_name)
+        card_obj = make_card_obj(card_name, shop_url)
         price_total += add_to_output(card_obj, output, output_text)
 
     print_output(output, price_total, output_text)
 
-    if mass_import:
-        pass  # Implement mass import functionality
-
     if firefox:
-        urls = [card['website'] for card in output if card['website']]
-        open_urls_in_firefox(urls)
+        open_urls_in_firefox(output, mass_import)
+
+    if mass_import:
+        make_mass_import(output, output_text)
 
     conn.close()
-
 
 def run_gui():
     root = ctk.CTk()  # Change root to CustomTkinter window
     root.title("Deck Pricing Tool")
+
+    # Global variable for the shop URL selection
+    shop_url = tk.StringVar(value="bootlegmage")
+
+    # Shop selection
+    shop_frame = ctk.CTkFrame(root)
+    shop_frame.pack(pady=20, padx=20)
+    r1 = ctk.CTkRadioButton(shop_frame, text="Bootleg Mage", variable=shop_url, value="bootlegmage")
+    r2 = ctk.CTkRadioButton(shop_frame, text="A Card Game Shop / Usea", variable=shop_url, value="acardgameshop")
+    r3 = ctk.CTkRadioButton(shop_frame, text="Magic CardPlus / BL", variable=shop_url, value="magiccardplus")
+    r1.pack(side=tk.LEFT, padx=10)
+    r2.pack(side=tk.LEFT, padx=10)
+    r3.pack(side=tk.LEFT, padx=10)
 
     deck_file_path = tk.StringVar(root)
     open_firefox = tk.BooleanVar(root)
@@ -284,12 +359,13 @@ def run_gui():
         if not confirm_run():  # Ask user confirmation before proceeding
             return
         output_text.delete('1.0', tk.END)  # Clear the text area before output
-        main(deck_file_path.get(), open_firefox.get(), mass_import.get(), output_text)
-        
+        main(deck_file_path.get(), open_firefox.get(), mass_import.get(), output_text, shop_url)
+        if mass_import.get():  # Check if the mass import option is selected
+            make_mass_import(output, output_text)  # Call the modified make_mass_import function
+
     def confirm_run():
         response = messagebox.askyesno("Confirm Run", "This may take 1-2 minutes. If you have selected the \"Open URLs in Firefox\" option, it may open upwards of 100 tabs.\n\nDo not click the window, as it may become unresponsive. If the window is unresponsive, the program is working as intended.\n\nDo you want to continue?")
         return response
-
 
     open_button = ctk.CTkButton(root, text="Select Deck File", command=open_file)
     open_button.pack(pady=(10, 0))  # Additional padding for better layout
