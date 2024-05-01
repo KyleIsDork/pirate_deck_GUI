@@ -14,7 +14,7 @@ To use Pirate Deck, follow these steps:
 2. Download the latest version
 
 ## Build
-1. Run `pip install pyinstaller` in a priviliged terminal
+1. Run `pip install pyinstaller` in a privileged terminal
 2. Navigate to the directory where the code is installed and run `pyinstaller --onefile --windowed main.py`
 3. After PyInstaller completes, it creates two folders: `build` and `dist`. The dist folder contains your .exe file.
 
