@@ -13,9 +13,12 @@ To use Pirate Deck, follow these steps:
 1. Navigate to releases https://github.com/KyleIsDork/pirate_deck_GUI/releases/tag/release
 2. Download the latest version
 
+## Build
+1. Run `pip install pyinstaller` in a priviliged terminal
+2. Navigate to the directory where the code is installed and run `pyinstaller --onefile --windowed main.py`
+3. After PyInstaller completes, it creates two folders: `build` and `dist`. The dist folder contains your .exe file.
+
 ## Usage
-
-
 1. Grab your decklist and export it to a text file
    * There are multiple ways to generate a list.  If your favorite deck builder is not listed, Pirate Deck requires `1 Name of Card` format. Quantity space Name of Card, with no additional 'section' entries.
     * You can also generate lists from the following export options on popular websites:
